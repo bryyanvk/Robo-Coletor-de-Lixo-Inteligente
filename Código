@@ -1,0 +1,254 @@
+#include <Servo.h>
+
+// Definindo os objetos servo
+Servo baseServo;
+Servo shoulderServo;
+Servo elbowServo;
+Servo wristServo;
+
+// Definindo os pinos de conexão dos servos
+const int basePin = 9;
+const int shoulderPin = 10;
+const int elbowPin = 11;
+const int wristPin = 12;
+
+// Definindo os pinos de controle dos motores DC (via pontes H)
+const int motor1_in1 = 22;
+const int motor1_in2 = 23;
+const int motor2_in1 = 24;
+const int motor2_in2 = 25;
+const int motor3_in1 = 26;
+const int motor3_in2 = 27;
+const int motor4_in1 = 28;
+const int motor4_in2 = 29;
+
+// Definindo os pinos do sensor ultrassônico
+const int trigPin = A0; // Porta analógica A0 usada como digital
+const int echoPin = A1; // Porta analógica A1 usada como digital
+
+// Definindo os pinos do sensor de cor TCS230
+const int s0 = 34;
+const int s1 = 35;
+const int s2 = 36;
+const int s3 = A2;
+const int outPin = A3; // Pin para leitura da saída de frequência
+
+// Variáveis para armazenar os ângulos dos servos
+int baseAngle = 90;
+int shoulderAngle = 90;
+int elbowAngle = 90;
+int wristAngle = 90;
+
+// Limites para a detecção de uma garrafa PET (baseado em valores RGB)
+const int redThresholdMin = 50; // Mínimo valor esperado para o componente vermelho
+const int redThresholdMax = 150; // Máximo valor esperado para o componente vermelho
+const int greenThresholdMin = 100; // Mínimo valor para o componente verde (PET pode refletir verde)
+const int greenThresholdMax = 255; // Máximo valor para o componente verde
+const int blueThresholdMin = 50; // Mínimo valor esperado para o componente azul
+const int blueThresholdMax = 200; // Máximo valor esperado para o componente azul
+
+void setup() {
+// Conectando os servos aos pinos
+baseServo.attach(basePin);
+shoulderServo.attach(shoulderPin);
+elbowServo.attach(elbowPin);
+wristServo.attach(wristPin);
+
+// Iniciando os servos em posição neutra (90 graus)
+baseServo.write(baseAngle);
+shoulderServo.write(shoulderAngle);
+elbowServo.write(elbowAngle);
+wristServo.write(wristAngle);
+
+// Configurando os pinos dos motores como saída
+pinMode(motor1_in1, OUTPUT);
+pinMode(motor1_in2, OUTPUT);
+pinMode(motor2_in1, OUTPUT);
+pinMode(motor2_in2, OUTPUT);
+pinMode(motor3_in1, OUTPUT);
+pinMode(motor3_in2, OUTPUT);
+pinMode(motor4_in1, OUTPUT);
+pinMode(motor4_in2, OUTPUT);
+
+// Configurando os pinos do sensor ultrassônico
+pinMode(trigPin, OUTPUT);
+pinMode(echoPin, INPUT);
+
+// Configurando os pinos do sensor de cor
+pinMode(s0, OUTPUT);
+pinMode(s1, OUTPUT);
+pinMode(s2, OUTPUT);
+pinMode(s3, OUTPUT);
+pinMode(outPin, INPUT);
+
+// Definindo a escala de frequência do sensor de cor
+digitalWrite(s0, HIGH);
+digitalWrite(s1, LOW); // Configuração para escala de 20%
+
+Serial.begin(9600); // Inicia a comunicação serial para o Bluetooth
+}
+
+void loop() {
+// Leitura do sensor ultrassônico
+long duration;
+int distance;
+
+// Gera um pulso de 10us no pino Trig
+digitalWrite(trigPin, LOW);
+delayMicroseconds(2);
+digitalWrite(trigPin, HIGH);
+delayMicroseconds(10);
+digitalWrite(trigPin, LOW);
+
+// Leitura do tempo de retorno do pulso
+duration = pulseIn(echoPin, HIGH);
+
+// Calcula a distância em centímetros
+distance = duration * 0.034 / 2;
+
+// Exibe a distância no monitor serial
+Serial.print("Distância: ");
+Serial.print(distance);
+Serial.println(" cm");
+
+// Se a distância for menor que um valor definido, para os motores
+if (distance > 0 && distance < 20) { // Exemplo: se objeto estiver a menos de 20 cm
+stopAllMotors();
+Serial.println("Obstáculo detectado! Motores parados.");
+}
+
+// Leitura do sensor de cor TCS230
+int redValue = readColor(LOW, LOW); // Seleciona filtro vermelho
+int greenValue = readColor(HIGH, HIGH); // Seleciona filtro verde
+int blueValue = readColor(LOW, HIGH); // Seleciona filtro azul
+
+// Exibe os valores das cores no monitor serial
+Serial.print("Cor (R,G,B): ");
+Serial.print(redValue);
+Serial.print(", ");
+Serial.print(greenValue);
+Serial.print(", ");
+Serial.println(blueValue);
+
+// Verifica se a garrafa PET foi detectada
+if (detectPetBottle(redValue, greenValue, blueValue)) {
+stopAllMotors(); // Para os motores ao detectar a garrafa PET
+Serial.println("Garrafa PET detectada! Motores parados.");
+}
+
+delay(100); // Pequeno atraso para estabilidade
+
+// Controle via Bluetooth
+if (Serial.available() > 0) {
+char comando = Serial.read(); // Ler o comando recebido via Bluetooth
+// Controle dos servos
+switch (comando) {
+case 'B': // 'B' para rotacionar a base
+baseAngle = constrain(baseAngle + 10, 0, 180);
+baseServo.write(baseAngle);
+break;
+case 'b': // 'b' para rotacionar a base na direção oposta
+baseAngle = constrain(baseAngle - 10, 0, 180);
+baseServo.write(baseAngle);
+break;
+case 'S': // 'S' para mover o "ombro"
+shoulderAngle = constrain(shoulderAngle + 10, 0, 180);
+shoulderServo.write(shoulderAngle);
+break;
+case 's': // 's' para mover o "ombro" na direção oposta
+shoulderAngle = constrain(shoulderAngle - 10, 0, 180);
+shoulderServo.write(shoulderAngle);
+break;
+case 'E': // 'E' para mover o cotovelo
+elbowAngle = constrain(elbowAngle + 10, 0, 180);
+elbowServo.write(elbowAngle);
+break;
+case 'e': // 'e' para mover o cotovelo na direção oposta
+elbowAngle = constrain(elbowAngle - 10, 0, 180);
+elbowServo.write(elbowAngle);
+break;
+case 'W': // 'W' para rotacionar o pulso
+wristAngle = constrain(wristAngle + 10, 0, 180);
+wristServo.write(wristAngle);
+break;
+case 'w': // 'w' para rotacionar o pulso na direção oposta
+wristAngle = constrain(wristAngle - 10, 0, 180);
+wristServo.write(wristAngle);
+break;
+}
+
+// Controle de movimento dos motores DC (para frente ou para trás)
+switch (comando) {
+case 'F': // 'F' para mover todos os motores para frente
+moveForward();
+break;
+case 'R': // 'R' para mover todos os motores para trás
+moveBackward();
+
+break;
+case 'S': // 'S' para parar todos os motores
+stopAllMotors();
+break;
+}
+
+// Exibe os ângulos e status para monitoramento
+Serial.print("Base: ");
+Serial.print(baseAngle);
+Serial.print(" | Ombro: ");
+Serial.print(shoulderAngle);
+Serial.print(" | Cotovelo: ");
+Serial.print(elbowAngle);
+Serial.print(" | Pulso: ");
+Serial.println(wristAngle);
+}
+}
+
+// Função para ler o valor da cor selecionada
+int readColor(int s2State, int s3State) {
+digitalWrite(s2, s2State);
+digitalWrite(s3, s3State);
+return pulseIn(outPin, LOW); // Retorna a duração do pulso (frequência)
+}
+
+// Função para mover todos os motores para frente
+void moveForward() {
+digitalWrite(motor1_in1, HIGH);
+digitalWrite(motor1_in2, LOW);
+digitalWrite(motor2_in1, HIGH);
+digitalWrite(motor2_in2, LOW);
+digitalWrite(motor3_in1, HIGH);
+digitalWrite(motor3_in2, LOW);
+digitalWrite(motor4_in1, HIGH);
+digitalWrite(motor4_in2, LOW);
+}
+
+// Função para mover todos os motores para trás
+void moveBackward() {
+digitalWrite(motor1_in1, LOW);
+digitalWrite(motor1_in2, HIGH);
+digitalWrite(motor2_in1, LOW);
+digitalWrite(motor2_in2, HIGH);
+digitalWrite(motor3_in1, LOW);
+digitalWrite(motor3_in2, HIGH);
+digitalWrite(motor4_in1, LOW);
+digitalWrite(motor4_in2, HIGH);
+}
+
+// Função para parar todos os motores
+void stopAllMotors() {
+digitalWrite(motor1_in1, LOW);
+digitalWrite(motor1_in2, LOW);
+digitalWrite(motor2_in1, LOW);
+digitalWrite(motor2_in2, LOW);
+digitalWrite(motor3_in1, LOW);
+digitalWrite(motor3_in2, LOW);
+digitalWrite(motor4_in1, LOW);
+digitalWrite(motor4_in2, LOW);
+}
+
+// Função para detectar uma garrafa PET com base nos valores de cor
+bool detectPetBottle(int red, int green, int blue) {
+return (red >= redThresholdMin && red <= redThresholdMax &&
+green >= greenThresholdMin && green <= greenThresholdMax &&
+blue >= blueThresholdMin && blue <= blueThresholdMax);
+}
